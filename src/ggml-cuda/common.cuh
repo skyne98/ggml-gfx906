@@ -31,6 +31,7 @@
 #include "vendors/hip.h"
 #ifdef GGML_HIP_GFX906_OPTIMIZED
 #include "gfx906-config.cuh"
+#include "gfx906-wave-primitives.cuh"
 #endif
 #elif defined(GGML_USE_MUSA)
 #include "vendors/musa.h"

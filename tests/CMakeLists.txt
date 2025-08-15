@@ -197,6 +197,18 @@ if (NOT GGML_BACKEND_DL)
     set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT "LLVM_PROFILE_FILE=${TEST_TARGET}.profraw")
 
     #
+    # test-gfx906-wave-primitives (only if HIP is enabled)
+    if(GGML_HIP AND GGML_HIP_GFX906_OPTIMIZED)
+        set(TEST_TARGET test-gfx906-wave-primitives)
+        add_executable(${TEST_TARGET} ${TEST_TARGET}.cpp)
+        target_link_libraries(${TEST_TARGET} PRIVATE ggml hip::device)
+        target_compile_definitions(${TEST_TARGET} PRIVATE GGML_USE_HIP GGML_HIP_GFX906_OPTIMIZED)
+        target_include_directories(${TEST_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/ggml-cuda)
+        add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
+        set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT "LLVM_PROFILE_FILE=${TEST_TARGET}.profraw")
+    endif()
+
+    #
     # test-pool
 
     set(TEST_TARGET test-pool)

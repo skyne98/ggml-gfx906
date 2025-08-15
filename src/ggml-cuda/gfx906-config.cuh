@@ -153,4 +153,3 @@ __device__ __forceinline__ float gfx906_dot2_f16(uint32_t a, uint32_t b) {
 #    endif
 
 #endif  // GGML_HIP_GFX906_OPTIMIZED
-
