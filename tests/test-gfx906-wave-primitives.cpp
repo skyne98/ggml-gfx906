@@ -31,7 +31,7 @@ __global__ void test_wave_reduce_sum(float* input, float* output, int n) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < n) {
         float value = input[tid];
-        float sum = gfx906::wave_reduce_sum(value);
+        float sum = wave_reduce_sum(value);
         
         // Only wave leader writes the result
         if (gfx906::is_wave_leader()) {
@@ -44,7 +44,7 @@ __global__ void test_wave_broadcast(float* input, float* output, int n, int src_
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < n) {
         float value = input[tid];
-        float broadcasted = gfx906::wave_broadcast(value, src_lane);
+        float broadcasted = wave_broadcast(value, src_lane);
         output[tid] = broadcasted;
     }
 }
@@ -54,7 +54,7 @@ __global__ void test_wave_shuffle(float* input, float* output, int n) {
     if (tid < n) {
         float value = input[tid];
         int src_lane = (gfx906::__lane_id() + 1) % gfx906::WAVE_SIZE;
-        float shuffled = gfx906::wave_shuffle(value, src_lane);
+        float shuffled = wave_shuffle(value, src_lane);
         output[tid] = shuffled;
     }
 }
@@ -72,7 +72,7 @@ __global__ void test_wave_reduce_max(float* input, float* output, int n) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < n) {
         float value = input[tid];
-        float max_val = gfx906::wave_reduce_max(value);
+        float max_val = wave_reduce_max(value);
         
         if (gfx906::is_wave_leader()) {
             output[tid / gfx906::WAVE_SIZE] = max_val;
