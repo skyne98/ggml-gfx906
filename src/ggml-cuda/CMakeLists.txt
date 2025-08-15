@@ -186,3 +186,8 @@ if (CUDAToolkit_FOUND)
 else()
     message(FATAL_ERROR "CUDA Toolkit not found")
 endif()
+
+# Include GFX906 memory optimization tests if enabled
+if(GGML_HIP_GFX906_OPTIMIZED)
+    include(CMakeLists_gfx906.txt)
+endif()

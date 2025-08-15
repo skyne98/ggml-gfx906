@@ -329,9 +329,28 @@ void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, gg
             CUDA_CHECK(mudnnMemcpyAsync(ctx, src1, src0));
         } else
 #endif // GGML_USE_MUSA && GGML_MUSA_MUDNN_COPY
+#ifdef GGML_HIP_GFX906_OPTIMIZED
+        // Use GFX906 optimized memory copy for better bandwidth utilization
+        {
+            const size_t n_bytes = ggml_nbytes(src0);
+            const size_t n_float4 = n_bytes / sizeof(float4);
+            
+            // Use optimized DWORDX4 copy kernel for aligned data
+            if (n_bytes >= 1024 && ((uintptr_t)src0_ddc & 0xF) == 0 && ((uintptr_t)src1_ddc & 0xF) == 0) {
+                int grid_size, block_size;
+                gfx906::memory::get_optimal_memcpy_config(n_float4, grid_size, block_size);
+                gfx906::memory_isa::memcpy_dwordx4_kernel<<<grid_size, block_size, 0, main_stream>>>(
+                    (float*)src1_ddc, (const float*)src0_ddc, n_float4);
+                CUDA_CHECK(cudaGetLastError());
+            } else {
+                CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, n_bytes, cudaMemcpyDeviceToDevice, main_stream));
+            }
+        }
+#else
         {
             CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, ggml_nbytes(src0), cudaMemcpyDeviceToDevice, main_stream));
         }
+#endif
     } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32) {
         ggml_cpy_flt_cuda<float, float> (src0_ddc, src1_ddc, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03, ne10, ne11, ne12, nb10, nb11, nb12, nb13, main_stream, dest_ptrs_d, graph_cpynode_index);
     } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_BF16) {

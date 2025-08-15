@@ -48,6 +48,11 @@
 #include "ggml-cuda/upscale.cuh"
 #include "ggml-cuda/wkv.cuh"
 #include "ggml-cuda/gla.cuh"
+
+#ifdef GGML_HIP_GFX906_OPTIMIZED
+#include "ggml-cuda/gfx906-memory-patterns.cuh"
+#include "ggml-cuda/gfx906-memory-isa.cuh"
+#endif
 #include "ggml-cuda/set-rows.cuh"
 #include "ggml.h"
 
