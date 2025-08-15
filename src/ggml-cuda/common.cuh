@@ -31,6 +31,7 @@
 #include "vendors/hip.h"
 #ifdef GGML_HIP_GFX906_OPTIMIZED
 #include "gfx906-config.cuh"
+#include "gfx906-wave-primitives.cuh"
 #endif
 #elif defined(GGML_USE_MUSA)
 #include "vendors/musa.h"
@@ -395,6 +396,12 @@ static __device__ __forceinline__ int warp_reduce_sum(int x) {
 
 template<int width = WARP_SIZE>
 static __device__ __forceinline__ float warp_reduce_sum(float x) {
+#if defined(GGML_HIP_GFX906_OPTIMIZED) && defined(__gfx906__)
+    // Use optimized DS_SWIZZLE implementation for GFX906
+    if constexpr (width == 64) {
+        return gfx906::wave_reduce_sum(x);
+    }
+#endif
 #pragma unroll
     for (int offset = width/2; offset > 0; offset >>= 1) {
         x += __shfl_xor_sync(0xffffffff, x, offset, width);
@@ -443,6 +450,12 @@ static __device__ __forceinline__ int warp_reduce_all(int x) {
 
 template<int width = WARP_SIZE>
 static __device__ __forceinline__ float warp_reduce_max(float x) {
+#if defined(GGML_HIP_GFX906_OPTIMIZED) && defined(__gfx906__)
+    // Use optimized DS_SWIZZLE implementation for GFX906
+    if constexpr (width == 64) {
+        return gfx906::wave_reduce_max(x);
+    }
+#endif
 #pragma unroll
     for (int offset = width/2; offset > 0; offset >>= 1) {
         x = fmaxf(x, __shfl_xor_sync(0xffffffff, x, offset, width));

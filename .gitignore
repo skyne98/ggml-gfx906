@@ -37,4 +37,4 @@ __pycache__/
 ggml-model-f16.bin
 *.bat
 
-.specstory/
+.specstory/test_*\ntests/test-gfx906-wave\n*.o\n*.a
