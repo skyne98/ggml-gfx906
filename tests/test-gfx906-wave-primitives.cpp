@@ -2,6 +2,7 @@
 // This test verifies the correctness of wave operations on AMD GFX906 hardware
 
 #include <hip/hip_runtime.h>
+#include <hip/hip_fp16.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -9,8 +10,12 @@
 #include <cmath>
 
 // Include the wave primitives header
+#ifndef GGML_USE_HIP
 #define GGML_USE_HIP
+#endif
+#ifndef GGML_HIP_GFX906_OPTIMIZED
 #define GGML_HIP_GFX906_OPTIMIZED
+#endif
 #include "../src/ggml-cuda/gfx906-wave-primitives.cuh"
 
 #define HIP_CHECK(call) do { \

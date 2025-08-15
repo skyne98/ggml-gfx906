@@ -18,16 +18,16 @@ static constexpr int WAVE_SIZE = 64;
 // Wave Reduction Operations
 // ================================
 
-// Wave reduce sum using __builtin_amdgcn_ds_swizzle
-// This is the most efficient method for GFX906
+// Wave reduce sum using __shfl_xor
+// Using shuffle operations for GFX906
 template <typename T> __device__ __forceinline__ T wave_reduce_sum(T value) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8, "Only 32-bit and 64-bit types supported");
 
     if constexpr (sizeof(T) == 4) {
-// 32-bit reduction using ds_swizzle
+// 32-bit reduction using shuffle
 #    pragma unroll
         for (int offset = 32; offset >= 1; offset >>= 1) {
-            value += __builtin_amdgcn_ds_swizzle(value, 0x1F, offset);
+            value += __shfl_xor(value, offset, WAVE_SIZE);
         }
     } else {
         // 64-bit reduction requires special handling
@@ -41,8 +41,8 @@ template <typename T> __device__ __forceinline__ T wave_reduce_sum(T value) {
 
 #    pragma unroll
         for (int offset = 32; offset >= 1; offset >>= 1) {
-            tmp.val32[0] += __builtin_amdgcn_ds_swizzle(tmp.val32[0], 0x1F, offset);
-            tmp.val32[1] += __builtin_amdgcn_ds_swizzle(tmp.val32[1], 0x1F, offset);
+            tmp.val32[0] += __shfl_xor(tmp.val32[0], offset, WAVE_SIZE);
+            tmp.val32[1] += __shfl_xor(tmp.val32[1], offset, WAVE_SIZE);
         }
         value = tmp.val64;
     }
@@ -53,7 +53,7 @@ template <typename T> __device__ __forceinline__ T wave_reduce_sum(T value) {
 __device__ __forceinline__ __half2 wave_reduce_sum(__half2 value) {
 #    pragma unroll
     for (int offset = 32; offset >= 1; offset >>= 1) {
-        value = __hadd2(value, __builtin_amdgcn_ds_swizzle(value, 0x1F, offset));
+        value = __hadd2(value, __shfl_xor(value, offset, WAVE_SIZE));
     }
     return value;
 }
@@ -62,7 +62,7 @@ __device__ __forceinline__ __half2 wave_reduce_sum(__half2 value) {
 template <typename T> __device__ __forceinline__ T wave_reduce_max(T value) {
 #    pragma unroll
     for (int offset = 32; offset >= 1; offset >>= 1) {
-        T shuffled = __builtin_amdgcn_ds_swizzle(value, 0x1F, offset);
+        T shuffled = __shfl_xor(value, offset, WAVE_SIZE);
         value      = (value > shuffled) ? value : shuffled;
     }
     return value;
@@ -72,7 +72,7 @@ template <typename T> __device__ __forceinline__ T wave_reduce_max(T value) {
 template <typename T> __device__ __forceinline__ T wave_reduce_min(T value) {
 #    pragma unroll
     for (int offset = 32; offset >= 1; offset >>= 1) {
-        T shuffled = __builtin_amdgcn_ds_swizzle(value, 0x1F, offset);
+        T shuffled = __shfl_xor(value, offset, WAVE_SIZE);
         value      = (value < shuffled) ? value : shuffled;
     }
     return value;
@@ -82,7 +82,7 @@ template <typename T> __device__ __forceinline__ T wave_reduce_min(T value) {
 template <typename T, typename Op> __device__ __forceinline__ T wave_reduce_op(T value, Op op) {
 #    pragma unroll
     for (int offset = 32; offset >= 1; offset >>= 1) {
-        value = op(value, __builtin_amdgcn_ds_swizzle(value, 0x1F, offset));
+        value = op(value, __shfl_xor(value, offset, WAVE_SIZE));
     }
     return value;
 }
@@ -98,13 +98,8 @@ template <typename T> __device__ __forceinline__ T wave_broadcast_first(T value)
 
 // Broadcast value from specific lane to all lanes
 template <typename T> __device__ __forceinline__ T wave_broadcast(T value, int src_lane) {
-    // For broadcasting from any lane, we need to use permute
-    // First, all lanes write their value to LDS
-    // Then lane src_lane's value is read by all
-    if (__lane_id() == src_lane) {
-        value = __builtin_amdgcn_readfirstlane(value);
-    }
-    return __builtin_amdgcn_ds_bpermute(src_lane << 2, value);
+    // Use shuffle to broadcast from specific lane
+    return __shfl(value, src_lane, WAVE_SIZE);
 }
 
 // ================================
@@ -114,8 +109,8 @@ template <typename T> __device__ __forceinline__ T wave_broadcast(T value, int s
 // Shuffle value from source lane
 template <typename T> __device__ __forceinline__ T wave_shuffle(T value, int src_lane) {
     static_assert(sizeof(T) == 4, "wave_shuffle only supports 32-bit types");
-    // DS_BPERMUTE: reads from byte address (src_lane * 4)
-    return __builtin_amdgcn_ds_bpermute(src_lane << 2, value);
+    // Use standard shuffle
+    return __shfl(value, src_lane, WAVE_SIZE);
 }
 
 // Shuffle with XOR mask (butterfly patterns)
@@ -226,7 +221,7 @@ template <typename T> __device__ __forceinline__ T wave_segmented_scan(T value, 
 
 // Get current lane ID within wave
 __device__ __forceinline__ int __lane_id() {
-    return __lane_id_amdgcn();
+    return threadIdx.x & (WAVE_SIZE - 1);
 }
 
 // Get wave ID within block
@@ -316,7 +311,7 @@ __device__ __forceinline__ float wave_dot2_f16(uint32_t a, uint32_t b) {
 // FP16 reduction with packed half2
 __device__ __forceinline__ float wave_reduce_sum_f16x2(__half2 value) {
     value = wave_reduce_sum(value);
-    return __half2float(value.x) + __half2float(value.y);
+    return __low2float(value) + __high2float(value);
 }
 
 }  // namespace gfx906
