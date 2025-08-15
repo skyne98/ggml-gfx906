@@ -73,6 +73,14 @@
 
 static_assert(sizeof(half) == sizeof(ggml_fp16_t), "wrong fp16 size");
 
+#ifdef GGML_HIP_GFX906_OPTIMIZED
+// GFX906 backend functions
+extern "C" {
+    bool ggml_cuda_gfx906_init();
+    bool ggml_cuda_gfx906_init_streams(int device_id);
+}
+#endif
+
 [[noreturn]]
 void ggml_cuda_error(const char * stmt, const char * func, const char * file, int line, const char * msg) {
     int id = -1; // in case cudaGetDevice fails
@@ -269,6 +277,20 @@ static ggml_cuda_device_info ggml_cuda_init() {
 
     // configure logging to stdout
     // CUBLAS_CHECK(cublasLoggerConfigure(1, 1, 0, nullptr));
+
+#ifdef GGML_HIP_GFX906_OPTIMIZED
+    // Initialize GFX906-specific backend infrastructure
+    if (ggml_cuda_gfx906_init()) {
+        GGML_LOG_INFO("GFX906 backend infrastructure initialized\n");
+        
+        // Initialize streams for each GFX906 device
+        for (int i = 0; i < info.device_count; i++) {
+            if ((info.devices[i].cc & 0xffff) == 0x906) {
+                ggml_cuda_gfx906_init_streams(i);
+            }
+        }
+    }
+#endif
 
     return info;
 }
