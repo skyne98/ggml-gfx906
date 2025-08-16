@@ -33,21 +33,34 @@ __device__ __forceinline__ float4 buffer_load_dwordx4(const float * __restrict__
     return result;
 }
 
-// GLOBAL_LOAD_DWORDX4 - Global memory 128-bit load
+// GLOBAL_LOAD_DWORDX4 - Global memory 128-bit load (with offset)
 __device__ __forceinline__ float4 global_load_dwordx4(const float * __restrict__ addr) {
     float4 result;
 
     // Ensure 16-byte alignment for optimal performance
     assert(((uintptr_t) addr & 0xF) == 0);
 
-    // Inline assembly for GLOBAL_LOAD_DWORDX4
-    asm volatile(
-        "global_load_dwordx4 %0, %1, off\n\t"
-        "s_waitcnt vmcnt(0)"
-        : "=v"(result)
-        : "v"(addr)
-        : "memory");
+    // For direct pointer access, we can still use the regular load
+    // The compiler will generate the proper instruction
+    result = *((const float4*)addr);
+    __builtin_amdgcn_s_waitcnt(0x3F70); // vmcnt(0)
 
+    return result;
+}
+
+// GLOBAL_LOAD_DWORDX4 with explicit base+offset addressing using inline assembly
+__device__ __forceinline__ float4 global_load_dwordx4_offset(const float * __restrict__ base, uint32_t offset) {
+    float4 result;
+    
+    // Correct inline assembly using SGPR base + VGPR offset
+    asm volatile(
+        "global_load_dwordx4 %0, %1, %2\n\t"
+        "s_waitcnt vmcnt(0)"
+        : "=v"(result)           // Output: data in VGPR
+        : "v"(offset),           // Input: 32-bit offset in VGPR
+          "s"(base)              // Input: base pointer in SGPR pair
+        : "memory");
+    
     return result;
 }
 
@@ -200,27 +213,46 @@ template <typename T, int BUFFER_SIZE> class LDSDoubleBufferISA {
 // Optimized Memory Copy Kernels
 // ================================
 
-// High-bandwidth memory copy using DWORDX4
-__global__ void memcpy_dwordx4_kernel(float * __restrict__ dst, const float * __restrict__ src, size_t n_float4) {
+// High-bandwidth memory copy using DWORDX4 with correct GCN inline assembly
+inline __global__ void memcpy_dwordx4_kernel(float * __restrict__ dst, const float * __restrict__ src, size_t n_float4) {
     const int tid    = blockIdx.x * blockDim.x + threadIdx.x;
     const int stride = gridDim.x * blockDim.x;
 
     // Each thread handles one float4 (128 bits)
     for (size_t i = tid; i < n_float4; i += stride) {
-        // Calculate addresses
-        const float * src_addr = src + (i * 4);
-        float *       dst_addr = dst + (i * 4);
-
-        // Load 128 bits
-        float4 data = global_load_dwordx4(src_addr);
-
-        // Store 128 bits
+        // Calculate per-thread offset in bytes (must be 32-bit for GCN addressing mode)
+        uint32_t offset = (uint32_t)(i * 16);  // 16 bytes per float4
+        
+        // Temporary storage for the data
+        float4 vdata;
+        
+        // Correct GCN inline assembly using SGPR base + VGPR offset addressing
         asm volatile(
-            "global_store_dwordx4 %0, %1, off\n\t"
+            // Load 4 dwords from source memory
+            // VDST: %0 (vdata), VOFFSET: %1 (offset), SBASE: %2 (src pointer)
+            "global_load_dwordx4 %0, %1, %2\n\t"
+            
+            // Wait for the load to complete before storing
+            "s_waitcnt vmcnt(0)\n\t"
+            
+            // Store 4 dwords to destination memory
+            // Note: For stores, the offset comes before the data
+            // VOFFSET: %1 (offset), VDATA: %0 (vdata), SBASE: %3 (dst pointer)
+            "global_store_dwordx4 %1, %0, %3\n\t"
+            
+            // Wait for the store to complete
             "s_waitcnt vmcnt(0)"
-            :
-            : "v"(dst_addr), "v"(data)
-            : "memory");
+            
+            // Output operands
+            : "=v"(vdata)      // %0: output, vector register for loaded data
+            
+            // Input operands
+            : "v"(offset),     // %1: input, vector register for the offset
+              "s"(src),        // %2: input, SCALAR register pair for the src pointer
+              "s"(dst)         // %3: input, SCALAR register pair for the dst pointer
+            
+            : "memory"
+        );
     }
 }
 
@@ -263,6 +295,107 @@ __device__ __forceinline__ void vmem_fence_isa() {
 // LDS memory fence only
 __device__ __forceinline__ void lds_fence_isa() {
     asm volatile("s_waitcnt lgkmcnt(0)" ::: "memory");
+}
+
+// ================================
+// Additional GCN ISA Instructions
+// ================================
+
+// GLOBAL_STORE_DWORD - Store 32-bit value (direct address)
+__device__ __forceinline__ void global_store_dword(float * __restrict__ addr, float value) {
+    // Use regular store - compiler will optimize to global_store_dword
+    *addr = value;
+    __builtin_amdgcn_s_waitcnt(0x3F70); // vmcnt(0)
+}
+
+// GLOBAL_STORE_DWORD with base+offset addressing using inline assembly
+__device__ __forceinline__ void global_store_dword_offset(float * __restrict__ base, uint32_t offset, float value) {
+    asm volatile(
+        "global_store_dword %0, %1, %2\n\t"
+        "s_waitcnt vmcnt(0)"
+        :
+        : "v"(offset),           // Input: 32-bit offset in VGPR
+          "v"(value),            // Input: data in VGPR
+          "s"(base)              // Input: base pointer in SGPR pair
+        : "memory");
+}
+
+// GLOBAL_STORE_DWORDX2 - Store 64-bit value (direct address)
+__device__ __forceinline__ void global_store_dwordx2(float2 * __restrict__ addr, float2 value) {
+    // Use regular store - compiler will optimize to global_store_dwordx2
+    *addr = value;
+    __builtin_amdgcn_s_waitcnt(0x3F70); // vmcnt(0)
+}
+
+// GLOBAL_STORE_DWORDX2 with base+offset addressing using inline assembly
+__device__ __forceinline__ void global_store_dwordx2_offset(float2 * __restrict__ base, uint32_t offset, float2 value) {
+    asm volatile(
+        "global_store_dwordx2 %0, %1, %2\n\t"
+        "s_waitcnt vmcnt(0)"
+        :
+        : "v"(offset),           // Input: 32-bit offset in VGPR
+          "v"(value),            // Input: data in VGPR
+          "s"(base)              // Input: base pointer in SGPR pair
+        : "memory");
+}
+
+// GLOBAL_STORE_DWORDX4 - Store 128-bit value (direct address)
+__device__ __forceinline__ void global_store_dwordx4(float4 * __restrict__ addr, float4 value) {
+    // Use regular store - compiler will optimize to global_store_dwordx4
+    *addr = value;
+    __builtin_amdgcn_s_waitcnt(0x3F70); // vmcnt(0)
+}
+
+// GLOBAL_STORE_DWORDX4 with base+offset addressing using inline assembly
+__device__ __forceinline__ void global_store_dwordx4_offset(float4 * __restrict__ base, uint32_t offset, float4 value) {
+    asm volatile(
+        // For stores, offset comes before data
+        "global_store_dwordx4 %0, %1, %2\n\t"
+        "s_waitcnt vmcnt(0)"
+        :
+        : "v"(offset),           // Input: 32-bit offset in VGPR
+          "v"(value),            // Input: data in VGPR
+          "s"(base)              // Input: base pointer in SGPR pair
+        : "memory");
+}
+
+// V_DOT4_I32_I8 - GFX906 specific dot product instruction
+// Performs 4x int8 dot product: result = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]
+__device__ __forceinline__ int32_t v_dot4_i32_i8(int32_t a, int32_t b, int32_t c) {
+    int32_t result;
+    asm volatile(
+        "v_dot4_i32_i8 %0, %1, %2, %3\n\t"
+        : "=v"(result)
+        : "v"(a), "v"(b), "v"(c));
+    return result;
+}
+
+// V_DOT2_F32_F16 - GFX906 specific dot product for half precision
+__device__ __forceinline__ float v_dot2_f32_f16(uint32_t a, uint32_t b, float c) {
+    float result;
+    asm volatile(
+        "v_dot2_f32_f16 %0, %1, %2, %3\n\t"
+        : "=v"(result)
+        : "v"(a), "v"(b), "v"(c));
+    return result;
+}
+
+// S_MEMTIME - Read system timestamp
+__device__ __forceinline__ uint64_t s_memtime() {
+    uint64_t time;
+    asm volatile(
+        "s_memtime %0\n\t"
+        "s_waitcnt lgkmcnt(0)"
+        : "=s"(time));
+    return time;
+}
+
+// Memory fence for global memory
+__device__ __forceinline__ void global_memory_fence() {
+    asm volatile(
+        "s_waitcnt vmcnt(0)\n\t"
+        "buffer_wbinvl1_vol\n\t"
+        ::: "memory");
 }
 
 }  // namespace memory_isa
