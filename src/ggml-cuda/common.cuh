@@ -32,6 +32,8 @@
 #ifdef GGML_HIP_GFX906_OPTIMIZED
 #include "gfx906-config.cuh"
 #include "gfx906-wave-primitives.cuh"
+#include "gfx906-memory-patterns.cuh"
+#include "gfx906-memory-isa.cuh"
 #endif
 #elif defined(GGML_USE_MUSA)
 #include "vendors/musa.h"
@@ -399,7 +401,7 @@ static __device__ __forceinline__ float warp_reduce_sum(float x) {
 #if defined(GGML_HIP_GFX906_OPTIMIZED) && defined(__gfx906__)
     // Use optimized DS_SWIZZLE implementation for GFX906
     if constexpr (width == 64) {
-        return gfx906::wave_reduce_sum(x);
+        return wave_reduce_sum(x);
     }
 #endif
 #pragma unroll
@@ -453,7 +455,7 @@ static __device__ __forceinline__ float warp_reduce_max(float x) {
 #if defined(GGML_HIP_GFX906_OPTIMIZED) && defined(__gfx906__)
     // Use optimized DS_SWIZZLE implementation for GFX906
     if constexpr (width == 64) {
-        return gfx906::wave_reduce_max(x);
+        return wave_reduce_max(x);
     }
 #endif
 #pragma unroll
