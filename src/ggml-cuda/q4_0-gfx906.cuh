@@ -61,7 +61,7 @@ __device__ __forceinline__ float vec_dot_q4_0_q8_1_gfx906(
     
     // Apply scaling factors
     const float d4 = __half2float(bq4_0[kbx].d);
-    const float2 ds8 = __half22float2(bq8_1[kbx].dm);
+    const float2 ds8 = __half22float2(bq8_1[kbx].ds);
     
     // Account for Q4_0 offset (-8) in the scaling
     return d4 * (sumi * ds8.x - (8 * 32 * vdr) * ds8.y);
@@ -115,10 +115,10 @@ __global__ void mul_mat_vec_q4_0_q8_1_gfx906(
             if (block_idx < blocks_per_row) {
                 // Load and dequantize Q8_1 input vector element
                 const int8_t q8_val = y[block_idx].qs[elem_idx];
-                const half2 dm = y[block_idx].dm;
-                const float d = __half2float(__low2half(dm));
-                const float m = __half2float(__high2half(dm));
-                s_vec[tid] = q8_val * d + m;
+                const half2 ds = y[block_idx].ds;
+                const float d = __half2float(__low2half(ds));
+                const float s = __half2float(__high2half(ds));
+                s_vec[tid] = q8_val * d + s;
             }
         }
         
@@ -126,7 +126,7 @@ __global__ void mul_mat_vec_q4_0_q8_1_gfx906(
         if (tid < blocks_to_process) {
             const int block_idx = block_offset + tid;
             if (block_idx < blocks_per_row) {
-                s_scales[tid] = y[block_idx].dm.x;
+                s_scales[tid] = __low2half(y[block_idx].ds);
             }
         }
         
@@ -156,7 +156,7 @@ __global__ void mul_mat_vec_q4_0_q8_1_gfx906(
                     for (int k = 0; k < 8; ++k) {
                         const float val = s_vec[b * 32 + j * 8 + k];
                         // Convert back to int8 range for dot product
-                        const int8_t q8_val = static_cast<int8_t>(roundf(val * 127.0f / s_scales[b]));
+                        const int8_t q8_val = static_cast<int8_t>(roundf(val * 127.0f / __half2float(s_scales[b])));
                         q8_packed |= (static_cast<uint32_t>(q8_val) & 0x0F) << (k * 4);
                     }
                     
@@ -207,7 +207,7 @@ __global__ void dequantize_q4_0_gfx906(
         // Extract and dequantize 8 values
 #pragma unroll
         for (int j = 0; j < 8; ++j) {
-            const int4_t q_val = (packed >> (j * 4)) & 0x0F;
+            const int q_val = (packed >> (j * 4)) & 0x0F;
             out_ptr[i * 8 + j] = scale * (q_val - 8);
         }
     }
