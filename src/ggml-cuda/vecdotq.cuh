@@ -52,6 +52,8 @@ static __device__ __forceinline__ int2 get_int_from_table_16(const int & q4, con
 #if defined(GGML_USE_HIP) || defined(__HIP_PLATFORM_AMD__)
 #include "q4_0-gfx906.cuh"
 #include "q8_0-gfx906.cuh"
+#include "q5_k-gfx906.cuh"
+#include "q6_k-gfx906.cuh"
 #endif
 
 template <int vdr> static __device__ __forceinline__ float vec_dot_q4_0_q8_1_impl(
@@ -785,6 +787,10 @@ static __device__ __forceinline__ float vec_dot_q4_K_q8_1(
 static __device__ __forceinline__ float vec_dot_q5_K_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
+#if defined(GGML_USE_HIP) && defined(__HIP_DEVICE_COMPILE__) && defined(GGML_HIP_GFX906_OPTIMIZED)
+    // Use GFX906 optimized implementation with V_DOT2_F32_F16
+    return vec_dot_q5_K_q8_1_gfx906(vbq, bq8_1, kbx, iqs);
+#else
     const block_q5_K * bq5_K = (const block_q5_K *) vbq + kbx;
 
     int   vl[2];
@@ -826,11 +832,16 @@ static __device__ __forceinline__ float vec_dot_q5_K_q8_1(
     }
 
     return vec_dot_q5_K_q8_1_impl_vmmq(vl, vh, u, sc, m, bq5_K->dm, d8);
+#endif // GGML_HIP_GFX906_OPTIMIZED
 }
 
 static __device__ __forceinline__ float vec_dot_q6_K_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
+#if defined(GGML_USE_HIP) && defined(__HIP_DEVICE_COMPILE__) && defined(GGML_HIP_GFX906_OPTIMIZED)
+    // Use GFX906 optimized implementation with V_DOT2_F32_F16 and V_PK_FMA_F16
+    return vec_dot_q6_K_q8_1_gfx906(vbq, bq8_1, kbx, iqs);
+#else
     const block_q6_K * bq6_K = (const block_q6_K *) vbq + kbx;
 
     const int bq8_offset = 2 * QR6_K * (iqs / (QI6_K/2)) + (iqs % (QI6_K/2)) / (QI6_K/4);
@@ -852,6 +863,7 @@ static __device__ __forceinline__ float vec_dot_q6_K_q8_1(
     }
 
     return vec_dot_q6_K_q8_1_impl_mmvq(vl, vh, u, scales, bq6_K->d, d8);
+#endif // GGML_HIP_GFX906_OPTIMIZED
 }
 
 #define VDR_IQ2_XXS_Q8_1_MMVQ 2
