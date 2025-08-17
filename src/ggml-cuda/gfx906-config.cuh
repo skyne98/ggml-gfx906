@@ -113,22 +113,28 @@ static inline size_t gfx906_align_memory(size_t size) {
 #        define GFX906_USE_INLINE_ASM 1
 
 // Hardware-specific intrinsics
-#        if defined(__HIP_DEVICE_COMPILE__)
 // V_DOT4_I32_I8 instruction for INT8 dot products
 __device__ __forceinline__ int32_t gfx906_dot4_i8(int32_t a, int32_t b) {
+#        if defined(__HIP_DEVICE_COMPILE__)
     int32_t result;
     // Using HIP intrinsic for dot product
     asm volatile("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(result) : "v"(a), "v"(b));
     return result;
+#        else
+    return 0; // Placeholder for host compilation
+#        endif
 }
 
 // V_DOT2_F32_F16 instruction for FP16 dot products
-__device__ __forceinline__ float gfx906_dot2_f16(uint32_t a, uint32_t b) {
+__device__ __forceinline__ float gfx906_dot2_f16(uint32_t a, uint32_t b, float c) {
+#        if defined(__HIP_DEVICE_COMPILE__)
     float result;
-    asm volatile("v_dot2_f32_f16 %0, %1, %2, 0.0" : "=v"(result) : "v"(a), "v"(b));
+    asm volatile("v_dot2_f32_f16 %0, %1, %2, %3" : "=v"(result) : "v"(a), "v"(b), "v"(c));
     return result;
-}
+#        else
+    return 0.0f; // Placeholder for host compilation
 #        endif
+}
 #    endif
 
 // Debug and profiling helpers

@@ -40,7 +40,7 @@ __global__ void gemm_f32_gfx906(const float * __restrict__ A,
                                 const float alpha,
                                 const float beta) {
     // Shared memory for double buffering
-    extern __shared__ float smem[];
+    extern __shared__ float smem_f32[];
 
     float * tile_a[GEMM_GFX906_NUM_BUFFERS];
     float * tile_b[GEMM_GFX906_NUM_BUFFERS];
@@ -49,10 +49,10 @@ __global__ void gemm_f32_gfx906(const float * __restrict__ A,
     const int lds_stride_a = TILE_M * (TILE_K + GEMM_GFX906_LDS_PADDING);
     const int lds_stride_b = TILE_K * (TILE_N + GEMM_GFX906_LDS_PADDING);
 
-    tile_a[0] = smem;
-    tile_a[1] = smem + lds_stride_a;
-    tile_b[0] = smem + 2 * lds_stride_a;
-    tile_b[1] = smem + 2 * lds_stride_a + lds_stride_b;
+    tile_a[0] = smem_f32;
+    tile_a[1] = smem_f32 + lds_stride_a;
+    tile_b[0] = smem_f32 + 2 * lds_stride_a;
+    tile_b[1] = smem_f32 + 2 * lds_stride_a + lds_stride_b;
 
     const int tid  = threadIdx.x;
     const int wid  = tid / GFX906_WAVE_SIZE;
@@ -207,7 +207,7 @@ __global__ void gemm_f16_gfx906(const half * __restrict__ A,
                                 const float alpha,
                                 const float beta) {
     // Shared memory for double buffering
-    extern __shared__ half smem[];
+    extern __shared__ half smem_f16[];
 
     half * tile_a[GEMM_GFX906_NUM_BUFFERS];
     half * tile_b[GEMM_GFX906_NUM_BUFFERS];
@@ -216,10 +216,10 @@ __global__ void gemm_f16_gfx906(const half * __restrict__ A,
     const int lds_stride_a = TILE_M * (TILE_K + GEMM_GFX906_LDS_PADDING);
     const int lds_stride_b = TILE_K * (TILE_N + GEMM_GFX906_LDS_PADDING);
 
-    tile_a[0] = smem;
-    tile_a[1] = smem + lds_stride_a;
-    tile_b[0] = smem + 2 * lds_stride_a;
-    tile_b[1] = smem + 2 * lds_stride_a + lds_stride_b;
+    tile_a[0] = smem_f16;
+    tile_a[1] = smem_f16 + lds_stride_a;
+    tile_b[0] = smem_f16 + 2 * lds_stride_a;
+    tile_b[1] = smem_f16 + 2 * lds_stride_a + lds_stride_b;
 
     const int tid  = threadIdx.x;
     const int wid  = tid / GFX906_WAVE_SIZE;
