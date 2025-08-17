@@ -6,8 +6,8 @@
 #include <vector>
 
 #ifdef GGML_USE_HIP
-#    include <hip/hip_fp16.h>
 #    include <hip/hip_runtime.h>
+#    include <hip/hip_fp16.h>
 #    define cudaStream_t           hipStream_t
 #    define cudaMalloc             hipMalloc
 #    define cudaFree               hipFree
@@ -23,9 +23,10 @@
 #    define cudaEventSynchronize   hipEventSynchronize
 #    define cudaEventElapsedTime   hipEventElapsedTime
 #    define cudaEventDestroy       hipEventDestroy
+    typedef __half half;
 #else
-#    include <cuda_fp16.h>
 #    include <cuda_runtime.h>
+#    include <cuda_fp16.h>
 #endif
 
 // Forward declarations of the GEMM functions

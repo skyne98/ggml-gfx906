@@ -64,4 +64,11 @@ gfx906_perf_config get_gemm_perf_config(const int M, const int N, const int K) {
     return config;
 }
 
+// Export functions for testing
+extern "C" {
+    bool ggml_cuda_gemm_gfx906_available() {
+        return true;
+    }
+}
+
 #endif  // GGML_HIP_GFX906_OPTIMIZED
