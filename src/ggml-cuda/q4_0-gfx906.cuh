@@ -6,7 +6,7 @@
 #include "common.cuh"
 #include "gfx906-config.cuh"
 
-#ifdef GGML_HIP_GFX906_OPTIMIZED
+#if defined(GGML_USE_HIP) || defined(__HIP_PLATFORM_AMD__)
 #ifdef __HIP_DEVICE_COMPILE__
 
 // V_DOT8_I32_I4 intrinsic for GFX906
@@ -214,4 +214,4 @@ __global__ void dequantize_q4_0_gfx906(
 }
 
 #endif // __HIP_DEVICE_COMPILE__
-#endif // GGML_HIP_GFX906_OPTIMIZED
+#endif // GGML_USE_HIP || __HIP_PLATFORM_AMD__
