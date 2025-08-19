@@ -16,8 +16,15 @@ namespace GFX906 {
     constexpr int WAVE_SIZE = 64;
     constexpr int MAX_THREADS_PER_CU = MAX_WAVES_PER_CU * WAVE_SIZE; // 2560
     
-    constexpr int VGPRS_PER_CU = 1024;
-    constexpr int SGPRS_PER_CU = 3200;
+    // VGPR constraints: 256 VGPRs available per thread
+    constexpr int VGPRS_PER_THREAD_MAX = 256;
+    constexpr int SIMDS_PER_CU = 4;
+    constexpr int MAX_WAVES_PER_SIMD = 10;  // 40 waves / 4 SIMDs
+    
+    // SGPR constraints: 800 SGPRs per CU, allocated in groups of 16
+    constexpr int SGPRS_PER_WAVE_MAX = 102;  // Practical limit
+    constexpr int SGPR_ALLOCATION_GRANULARITY = 16;
+    
     constexpr int LDS_SIZE = 65536; // 64 KB
     constexpr int LDS_GRANULARITY = 512; // bytes (128 dwords)
     
@@ -28,8 +35,6 @@ namespace GFX906 {
     constexpr int LDS_BANKS = 32;
     constexpr int LDS_BANK_WIDTH = 4; // bytes
     constexpr int LDS_BANDWIDTH_PER_CYCLE = LDS_BANKS * LDS_BANK_WIDTH; // 128 bytes/cycle
-    
-    constexpr int SIMDS_PER_CU = 4;
 }
 
 // Configuration structure for GEMM kernel
@@ -95,10 +100,16 @@ struct GemmConfig {
         int waves_lds = blocks_lds * waves_per_block;
         
         // Occupancy limited by VGPRs
-        int waves_vgpr = GFX906::VGPRS_PER_CU / (vgprs_per_thread * GFX906::WAVE_SIZE);
+        // Each SIMD can run floor(256 / vgprs_per_thread) waves
+        int waves_per_simd = GFX906::VGPRS_PER_THREAD_MAX / vgprs_per_thread;
+        waves_per_simd = std::min(waves_per_simd, GFX906::MAX_WAVES_PER_SIMD);
+        int waves_vgpr = waves_per_simd * GFX906::SIMDS_PER_CU;
         
-        // Occupancy limited by SGPRs (per wave allocation)
-        int waves_sgpr = GFX906::SGPRS_PER_CU / (sgprs_per_thread * waves_per_block);
+        // Occupancy limited by SGPRs
+        // SGPRs are allocated per wave in multiples of 16
+        int sgprs_allocated = ((sgprs_per_thread + 15) / 16) * 16;
+        int waves_sgpr = (GFX906::SGPRS_PER_WAVE_MAX * GFX906::MAX_WAVES_PER_CU) / 
+                         (sgprs_allocated * waves_per_block);
         
         // Take minimum of all limits
         occupancy_waves = std::min({waves_lds, waves_vgpr, waves_sgpr, GFX906::MAX_WAVES_PER_CU});
@@ -300,8 +311,14 @@ public:
         // Calculate limiting factor
         int blocks_lds = GFX906::LDS_SIZE / config.lds_bytes;
         int waves_lds = blocks_lds * config.waves_per_block;
-        int waves_vgpr = GFX906::VGPRS_PER_CU / (config.vgprs_per_thread * GFX906::WAVE_SIZE);
-        int waves_sgpr = GFX906::SGPRS_PER_CU / (config.sgprs_per_thread * config.waves_per_block);
+        
+        int waves_per_simd = GFX906::VGPRS_PER_THREAD_MAX / config.vgprs_per_thread;
+        waves_per_simd = std::min(waves_per_simd, GFX906::MAX_WAVES_PER_SIMD);
+        int waves_vgpr = waves_per_simd * GFX906::SIMDS_PER_CU;
+        
+        int sgprs_allocated = ((config.sgprs_per_thread + 15) / 16) * 16;
+        int waves_sgpr = (GFX906::SGPRS_PER_WAVE_MAX * GFX906::MAX_WAVES_PER_CU) / 
+                         (sgprs_allocated * config.waves_per_block);
         
         printf("  Limiting factor: ");
         if (config.occupancy_waves == waves_lds) {
