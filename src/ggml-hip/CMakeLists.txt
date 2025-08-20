@@ -64,10 +64,24 @@ list(APPEND GGML_SOURCES_ROCM ${SRCS})
 file(GLOB   SRCS "../ggml-cuda/template-instances/mmq*.cu")
 list(APPEND GGML_SOURCES_ROCM ${SRCS})
 
-# Add GFX906-specific source files
-if (CMAKE_HIP_ARCHITECTURES MATCHES "gfx906" OR AMDGPU_TARGETS MATCHES "gfx906")
-    list(APPEND GGML_SOURCES_ROCM "../ggml-cuda/gfx906-init.cu")
-    add_compile_definitions(GGML_HIP_GFX906_OPTIMIZED)
+# Add GFX906-specific source files only when explicitly requested
+if (GGML_HIP_GFX906_OPTIMIZED)
+    if (CMAKE_HIP_ARCHITECTURES MATCHES "gfx906" OR AMDGPU_TARGETS MATCHES "gfx906")
+        list(APPEND GGML_SOURCES_ROCM 
+            "../ggml-cuda/gfx906-init.cu"
+            "../ggml-cuda/gemm-gfx906.cu"
+            "../ggml-cuda/quantize-gfx906.cu"
+            "../ggml-cuda/gfx906-memory-kernels.cu"
+        )
+        add_compile_definitions(GGML_HIP_GFX906_OPTIMIZED)
+        message(STATUS "GFX906 optimizations ENABLED")
+    else()
+        message(WARNING "GGML_HIP_GFX906_OPTIMIZED requested but not building for gfx906 architecture")
+    endif()
+else()
+    if (CMAKE_HIP_ARCHITECTURES MATCHES "gfx906" OR AMDGPU_TARGETS MATCHES "gfx906")
+        message(STATUS "GFX906 detected but optimizations DISABLED (use -DGGML_HIP_GFX906_OPTIMIZED=ON to enable)")
+    endif()
 endif()
 
 if (GGML_CUDA_FA_ALL_QUANTS)

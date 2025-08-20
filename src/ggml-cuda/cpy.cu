@@ -330,22 +330,75 @@ void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, gg
         } else
 #endif // GGML_USE_MUSA && GGML_MUSA_MUDNN_COPY
 #ifdef GGML_HIP_GFX906_OPTIMIZED
-        // Use GFX906 optimized memory copy for better bandwidth utilization
+        // Use GFX906 optimized memory copy for contiguous tensors only
+        #if 1
         {
-            const size_t n_bytes = ggml_nbytes(src0);
-            const size_t n_float4 = n_bytes / sizeof(float4);
+            // CRITICAL: Only use optimized copy for truly contiguous tensors
+            // Non-contiguous tensors have strides that don't match their dimensions
+            const bool src0_contiguous = ggml_is_contiguous(src0);
+            const bool src1_contiguous = ggml_is_contiguous(src1);
             
-            // Use optimized DWORDX4 copy kernel for aligned data
-            if (n_bytes >= 1024 && ((uintptr_t)src0_ddc & 0xF) == 0 && ((uintptr_t)src1_ddc & 0xF) == 0) {
-                int grid_size, block_size;
-                gfx906::memory::get_optimal_memcpy_config(n_float4, grid_size, block_size);
-                gfx906::memory_isa::memcpy_dwordx4_kernel<<<grid_size, block_size, 0, main_stream>>>(
-                    (float*)src1_ddc, (const float*)src0_ddc, n_float4);
-                CUDA_CHECK(cudaGetLastError());
+            if (src0_contiguous && src1_contiguous) {
+                const size_t n_bytes = ggml_nbytes(src0);
+                
+                // Check alignment (16-byte for DWORDX4)
+                const bool is_aligned = ((uintptr_t)src0_ddc & 0xF) == 0 && 
+                                       ((uintptr_t)src1_ddc & 0xF) == 0;
+                
+                // Size requirements: minimum 1KB, must be divisible by 16
+                const bool is_size_valid = (n_bytes >= 1024) && (n_bytes % 16 == 0);
+                
+                // Prevent overflow: limit to 2GB per copy
+                const size_t MAX_COPY_SIZE = 2ULL * 1024 * 1024 * 1024;  // 2GB
+                const bool is_size_safe = n_bytes <= MAX_COPY_SIZE;
+                
+                #ifdef GFX906_DEBUG
+                static int debug_count = 0;
+                if (n_bytes > 10*1024*1024) {  // Debug large tensors
+                    printf("[GFX906 CPY] Tensor #%d: %zu bytes, contiguous=%d/%d, aligned=%d\n",
+                           debug_count++, n_bytes, src0_contiguous, src1_contiguous, is_aligned);
+                    printf("  Shape: [%lld,%lld,%lld,%lld], Strides: [%zu,%zu,%zu,%zu]\n",
+                           src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
+                           src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3]);
+                }
+                #endif
+                
+                if (is_aligned && is_size_valid && is_size_safe) {
+                    const size_t n_float4 = n_bytes / sizeof(float4);
+                    
+                    // Ensure n_float4 is valid
+                    if (n_float4 > 0) {
+                        int grid_size, block_size;
+                        gfx906::memory::get_optimal_memcpy_config(n_float4, grid_size, block_size);
+                        
+                        // Launch optimized kernel
+                        gfx906::memory_isa::memcpy_dwordx4_kernel<<<grid_size, block_size, 0, main_stream>>>(
+                            (float*)src1_ddc, (const float*)src0_ddc, n_float4);
+                        
+                        // Check for launch errors
+                        cudaError_t err = cudaGetLastError();
+                        if (err != cudaSuccess) {
+                            fprintf(stderr, "[GFX906] Kernel launch failed: %s\n", cudaGetErrorString(err));
+                            CUDA_CHECK(err);
+                        }
+                    } else {
+                        // Fallback for very small tensors
+                        CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, n_bytes, cudaMemcpyDeviceToDevice, main_stream));
+                    }
+                } else {
+                    // Fallback for unaligned/invalid size
+                    CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, n_bytes, cudaMemcpyDeviceToDevice, main_stream));
+                }
             } else {
-                CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, n_bytes, cudaMemcpyDeviceToDevice, main_stream));
+                // Fallback for non-contiguous tensors - MUST use standard copy
+                // Non-contiguous tensors require element-wise copy respecting strides
+                CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, ggml_nbytes(src0), cudaMemcpyDeviceToDevice, main_stream));
             }
         }
+        #else
+        // Fallback to standard copy
+        CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, ggml_nbytes(src0), cudaMemcpyDeviceToDevice, main_stream));
+        #endif
 #else
         {
             CUDA_CHECK(cudaMemcpyAsync(src1_ddc, src0_ddc, ggml_nbytes(src0), cudaMemcpyDeviceToDevice, main_stream));

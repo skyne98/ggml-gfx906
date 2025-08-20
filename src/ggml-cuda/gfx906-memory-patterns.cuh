@@ -215,17 +215,32 @@ __global__ void optimized_memcpy_kernel(T * __restrict__ dst, const T * __restri
 }
 
 // Launch configuration for optimal bandwidth
-inline void get_optimal_memcpy_config(size_t n_elements, int & grid_size, int & block_size) {
+inline void get_optimal_memcpy_config(size_t n_float4, int & grid_size, int & block_size) {
     // Optimize for GFX906: 60 CUs, 1024 max threads per block
-    block_size = 256;  // 4 waves per block
+    // Use 256 threads (4 waves) for good occupancy
+    block_size = 256;
 
-    // Calculate grid to saturate memory bandwidth
-    const size_t elements_per_block = block_size * 4;  // float4 per thread
-    grid_size                       = (n_elements + elements_per_block - 1) / elements_per_block;
-
-    // Cap at maximum CU utilization
-    const int max_blocks = GFX906_NUM_CUS * 16;  // 16 blocks per CU
-    grid_size            = min(grid_size, max_blocks);
+    // Calculate grid size based on work distribution
+    // Each thread processes one float4 (16 bytes) per iteration
+    const size_t elements_per_block = block_size;
+    
+    // Basic grid calculation
+    size_t needed_blocks = (n_float4 + elements_per_block - 1) / elements_per_block;
+    
+    // GFX906 has 60 CUs, optimal occupancy with 8-16 blocks per CU
+    const size_t optimal_blocks = GFX906_NUM_CUS * 8;  // 480 blocks
+    const size_t max_blocks = GFX906_NUM_CUS * 16;     // 960 blocks
+    
+    // Use optimal block count for better load balancing
+    if (needed_blocks > optimal_blocks) {
+        grid_size = optimal_blocks;  // Let threads loop for large copies
+    } else {
+        grid_size = (int)needed_blocks;  // Direct mapping for small copies
+    }
+    
+    // Ensure grid_size is within valid range
+    grid_size = (grid_size > 0) ? grid_size : 1;
+    grid_size = (grid_size <= max_blocks) ? grid_size : max_blocks;
 }
 
 // ================================

@@ -116,17 +116,38 @@ static inline size_t gfx906_align_memory(size_t size) {
 #        if defined(__HIP_DEVICE_COMPILE__)
 // V_DOT4_I32_I8 instruction for INT8 dot products
 __device__ __forceinline__ int32_t gfx906_dot4_i8(int32_t a, int32_t b) {
+    // Use hardware instruction - verified working
+    #if 1
     int32_t result;
     // Using HIP intrinsic for dot product
     asm volatile("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(result) : "v"(a), "v"(b));
     return result;
+    #else
+    // Software fallback for dot product of 4 int8 values
+    int8_t* a_bytes = (int8_t*)&a;
+    int8_t* b_bytes = (int8_t*)&b;
+    int32_t result = 0;
+    for (int i = 0; i < 4; i++) {
+        result += (int32_t)a_bytes[i] * (int32_t)b_bytes[i];
+    }
+    return result;
+    #endif
 }
 
 // V_DOT2_F32_F16 instruction for FP16 dot products
 __device__ __forceinline__ float gfx906_dot2_f16(uint32_t a, uint32_t b) {
+    // Use hardware instruction - verified working
+    #if 1
     float result;
     asm volatile("v_dot2_f32_f16 %0, %1, %2, 0.0" : "=v"(result) : "v"(a), "v"(b));
     return result;
+    #else
+    // Software fallback for dot product of 2 half values
+    __half* a_halfs = (__half*)&a;
+    __half* b_halfs = (__half*)&b;
+    return __half2float(a_halfs[0]) * __half2float(b_halfs[0]) + 
+           __half2float(a_halfs[1]) * __half2float(b_halfs[1]);
+    #endif
 }
 #        endif
 #    endif

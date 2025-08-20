@@ -284,6 +284,8 @@ static ggml_cuda_device_info ggml_cuda_init() {
     // CUBLAS_CHECK(cublasLoggerConfigure(1, 1, 0, nullptr));
 
 #ifdef GGML_HIP_GFX906_OPTIMIZED
+    // DISABLED for debugging - GFX906 initialization causes crashes
+    #if 0
     // Initialize GFX906-specific backend infrastructure
     if (ggml_cuda_gfx906_init()) {
         GGML_LOG_INFO("GFX906 backend infrastructure initialized\n");
@@ -295,6 +297,8 @@ static ggml_cuda_device_info ggml_cuda_init() {
             }
         }
     }
+    #endif
+    GGML_LOG_INFO("GFX906 optimizations enabled (memory copy only)\n");
 #endif
 
     return info;

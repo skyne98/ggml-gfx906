@@ -210,50 +210,55 @@ template <typename T, int BUFFER_SIZE> class LDSDoubleBufferISA {
 };
 
 // ================================
-// Optimized Memory Copy Kernels
+// Optimized Memory Copy Functions 
 // ================================
 
-// High-bandwidth memory copy using DWORDX4 with correct GCN inline assembly
-inline __global__ void memcpy_dwordx4_kernel(float * __restrict__ dst, const float * __restrict__ src, size_t n_float4) {
-    const int tid    = blockIdx.x * blockDim.x + threadIdx.x;
-    const int stride = gridDim.x * blockDim.x;
+// Forward declaration of the actual kernel (defined in gfx906-memory-kernels.cu)
+__global__ void memcpy_dwordx4_kernel(float * __restrict__ dst, const float * __restrict__ src, size_t n_float4);
 
-    // Each thread handles one float4 (128 bits)
+// Device function for optimized memory copy (to be called from kernels)
+__device__ __forceinline__ void memcpy_dwordx4_device(float * __restrict__ dst, const float * __restrict__ src, size_t n_float4) {
+    const size_t tid    = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t stride = gridDim.x * blockDim.x;
+
+#if defined(__HIP_DEVICE_COMPILE__) && defined(GGML_HIP_GFX906_OPTIMIZED)
+    // Use explicit inline assembly for maximum control over memory access patterns
+    // glc=1 slc=1 bypasses both L1 and L2 cache for streaming workloads
+    
     for (size_t i = tid; i < n_float4; i += stride) {
-        // Calculate per-thread offset in bytes (must be 32-bit for GCN addressing mode)
-        uint32_t offset = (uint32_t)(i * 16);  // 16 bytes per float4
+        // Calculate byte addresses
+        const float* src_addr = src + i * 4;
+        float* dst_addr = dst + i * 4;
         
-        // Temporary storage for the data
-        float4 vdata;
-        
-        // Correct GCN inline assembly using SGPR base + VGPR offset addressing
+        // Load 128 bits using GLOBAL_LOAD_DWORDX4 with cache bypass
+        float4 data;
         asm volatile(
-            // Load 4 dwords from source memory
-            // VDST: %0 (vdata), VOFFSET: %1 (offset), SBASE: %2 (src pointer)
-            "global_load_dwordx4 %0, %1, %2\n\t"
-            
-            // Wait for the load to complete before storing
-            "s_waitcnt vmcnt(0)\n\t"
-            
-            // Store 4 dwords to destination memory
-            // Note: For stores, the offset comes before the data
-            // VOFFSET: %1 (offset), VDATA: %0 (vdata), SBASE: %3 (dst pointer)
-            "global_store_dwordx4 %1, %0, %3\n\t"
-            
-            // Wait for the store to complete
+            "global_load_dwordx4 %0, %1, off glc slc\n\t"
             "s_waitcnt vmcnt(0)"
-            
-            // Output operands
-            : "=v"(vdata)      // %0: output, vector register for loaded data
-            
-            // Input operands
-            : "v"(offset),     // %1: input, vector register for the offset
-              "s"(src),        // %2: input, SCALAR register pair for the src pointer
-              "s"(dst)         // %3: input, SCALAR register pair for the dst pointer
-            
+            : "=v"(data)
+            : "v"(src_addr)
             : "memory"
         );
+        
+        // Store 128 bits - use standard store to avoid syntax issues
+        // The compiler will generate global_store_dwordx4
+        *((float4*)dst_addr) = data;
     }
+    
+    // Ensure all stores complete before kernel exit
+    asm volatile("s_waitcnt vmcnt(0)" ::: "memory");
+    __threadfence();
+#else
+    // Fallback to standard vectorized copy
+    float4* __restrict__ dst_f4 = reinterpret_cast<float4*>(dst);
+    const float4* __restrict__ src_f4 = reinterpret_cast<const float4*>(src);
+    
+    for (size_t i = tid; i < n_float4; i += stride) {
+        dst_f4[i] = src_f4[i];
+    }
+    
+    __threadfence();
+#endif
 }
 
 // ================================
