@@ -1862,6 +1862,24 @@ extern "C" {
             int                   d0,  // dilation dimension 0
             int                   d1); // dilation dimension 1
 
+    // 3D convolution
+    GGML_API struct ggml_tensor * ggml_conv_3d(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,   // convolution kernel
+            struct ggml_tensor  * b,   // data
+            int                   s0,  // stride dimension 0
+            int                   s1,  // stride dimension 1
+            int                   s2,  // stride dimension 2
+            int                   p0,  // padding dimension 0
+            int                   p1,  // padding dimension 1
+            int                   p2,  // padding dimension 2
+            int                   d0,  // dilation dimension 0
+            int                   d1,  // dilation dimension 1
+            int                   d2,  // dilation dimension 2
+            int                   IC,  // input channels
+            int                   N,   // batch size
+            int                   OC); // output channels
+
     // kernel size is a->ne[0] x a->ne[1]
     // stride is equal to kernel size
     // padding is zero

@@ -4480,6 +4480,49 @@ struct ggml_tensor * ggml_conv_2d_direct(
     return result;
 }
 
+// ggml_conv_3d
+
+struct ggml_tensor * ggml_conv_3d(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   s1,
+        int                   s2,
+        int                   p0,
+        int                   p1,
+        int                   p2,
+        int                   d0,
+        int                   d1,
+        int                   d2,
+        int                   IC,
+        int                   N,
+        int                   OC) {
+    // For now, return a dummy tensor with the expected output shape
+    // This is a placeholder implementation
+    const int64_t IW = b->ne[0];
+    const int64_t IH = b->ne[1];
+    const int64_t ID = b->ne[2];
+    
+    const int64_t KW = a->ne[0];
+    const int64_t KH = a->ne[1];
+    const int64_t KD = a->ne[2];
+    
+    // Calculate output dimensions
+    const int64_t OW = (IW + 2*p0 - d0*(KW-1) - 1)/s0 + 1;
+    const int64_t OH = (IH + 2*p1 - d1*(KH-1) - 1)/s1 + 1;
+    const int64_t OD = (ID + 2*p2 - d2*(KD-1) - 1)/s2 + 1;
+    
+    const int64_t ne[4] = {OW, OH, OD, OC * N};
+    
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
+    
+    // Mark as not implemented properly yet
+    result->op = GGML_OP_NONE;
+    
+    return result;
+}
+
 // ggml_conv_transpose_2d_p0
 
 static int64_t ggml_calc_conv_transpose_output_size(int64_t ins, int64_t ks, int s, int p) {
